@@ -12,9 +12,12 @@ class HomePage extends ConsumerStatefulWidget {
   ConsumerState<HomePage> createState() => _HomePageState();
 }
 
-class _HomePageState extends ConsumerState<HomePage> {
+class _HomePageState extends ConsumerState<HomePage> with AutomaticKeepAliveClientMixin {
   int screenIndex = 0;
   DateTime? _selectedDate;
+
+  @override
+  bool get wantKeepAlive => true;
 
   void handleScreenChanged(int selectedScreen) {
     setState(() {

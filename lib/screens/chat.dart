@@ -1,28 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_ai_toolkit/flutter_ai_toolkit.dart';
-import 'package:journal/services/ai_providers.dart';
+import 'package:journal/providers/chat_provider.dart';
 
-class Chat extends ConsumerStatefulWidget{
+class Chat extends ConsumerWidget{
   const Chat({super.key});
-
   @override
-  ConsumerState<Chat> createState() {
-    return _ChatState();
-  }
-
-}
-
-
-class _ChatState extends ConsumerState<Chat> {
-
-  final chatProvider = OllamaChatProvider(
-    model:'qwen2:7b',
-    apiUrl:'http://localhost:11434/api/chat'
-  );
-
-  @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final chatProvider = ref.watch(chatProviderProvider);
     return Scaffold(
       body: LlmChatView(
         provider: chatProvider,
