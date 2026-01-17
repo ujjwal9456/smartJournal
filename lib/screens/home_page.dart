@@ -86,7 +86,7 @@ class _HomePageState extends ConsumerState<HomePage> with AutomaticKeepAliveClie
     return ClipRRect(
       borderRadius: BorderRadius.circular(15),
       child: Container(
-        color: Theme.of(context).colorScheme.surfaceVariant,
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
         padding: const EdgeInsets.all(20),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,

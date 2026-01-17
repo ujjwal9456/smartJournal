@@ -1,8 +1,8 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_ai_toolkit/flutter_ai_toolkit.dart';
-import 'package:journal/core/http_client.dart';
 
 abstract class AiProviders {
   Future<String> request(String prompt);
@@ -10,81 +10,120 @@ abstract class AiProviders {
 
 class OllamaChatProvider extends ChangeNotifier implements LlmProvider {
   final String model;
-  final String apiUrl;
+  final String apiUrl; 
 
   OllamaChatProvider({required this.model, required this.apiUrl});
 
-  // internal mutable history; exposed as an unmodifiable iterable
   final List<ChatMessage> _history = <ChatMessage>[];
 
   @override
   Iterable<ChatMessage> get history => List.unmodifiable(_history);
 
-  
-  Future<String> request(String prompt) async {
-    final headers = {
-      "Content-Type": "application/json",
-    };
-
+  @override
+  Stream<String> generateStream(
+    String prompt, {
+    Iterable<Attachment> attachments = const [],
+  }) async* {
     final data = {
-      "model": model,
       "messages": [
+        ..._history.map((m) => {
+              "role": m.origin == MessageOrigin.user ? "user" : "assistant",
+              "content": m.text,
+            }),
         {"role": "user", "content": prompt}
-      ],
-      "stream": false
+      ]
     };
 
     try {
-      final response = await AppHttp.post(
+      print('Starting API call to: $apiUrl');
+      print('Request data: $data');
+      
+      // Using Dio for a streaming response from Python backend
+      final response = await Dio().post(
         apiUrl,
-        headers: headers,
-        data: jsonEncode(data),
+        data: data,
+        options: Options(
+          responseType: ResponseType.stream,
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'text/event-stream',
+          },
+        ),
       );
+      
+      print('Response received: ${response.statusCode}');
 
-      if (response.statusCode == 200) {
-        final decodedResponse = response.data;
-        return decodedResponse["message"]["content"];
-      } else {
-        throw Exception(
-            "Failed to fetch response from Ollama API. Status code: ${response.statusCode}, body: ${response.data}");
+      try {
+        final stream = response.data!.stream;
+        
+        await for (final chunk in stream) {
+          final decoded = utf8.decode(chunk);
+          final lines = decoded.split('\n');
+          
+          for (final line in lines) {
+            if (line.isNotEmpty) {
+              print('Processing line: "$line"');
+              // Handle SSE format - remove "data: " prefix
+              String cleanLine = line;
+              if (line.startsWith('data: ')) {
+                cleanLine = line.substring(6);
+              }
+              
+              // Skip [DONE] messages
+              if (cleanLine == '[DONE]') {
+                print('Received [DONE] signal');
+                continue;
+              }
+              
+              if (cleanLine.isNotEmpty) {
+                try {
+                  final jsonData = jsonDecode(cleanLine);
+                  if (jsonData is Map && jsonData.containsKey('text')) {
+                    final content = jsonData['text'] as String;
+                    print('Yielding content: "$content"');
+                    yield content;
+                  }
+                } catch (e) {
+                  print('JSON decode error: $e');
+                  print('Failed to parse: "$cleanLine"');
+                }
+              }
+            }
+          }
+        }
+      } catch (streamError) {
+        print('Stream processing error: $streamError');
+        print('Stream error type: ${streamError.runtimeType}');
+        rethrow;
       }
-    } on DioException catch (e) {
-      throw Exception("Error requesting Ollama API: $e\nBody: ${e.response}");
+    } catch (e) {
+      throw Exception("Error connecting to Python Backend: $e");
     }
   }
 
-  /// Ollama in this implementation does not stream; produce a single-chunk stream
-  /// containing the full response. If Ollama streaming is available, replace this
-  /// with streaming logic that yields incremental tokens.
   @override
-  Stream<String> generateStream(String prompt, {Iterable<Attachment> attachments = const []}) async* {
-    final resp = await request(prompt);
-    yield resp;
-  }
-
-  /// Send a message and return a stream that yields the full response once.
-  /// This also gives a place to update internal history and notify listeners.
-  @override
-  Stream<String> sendMessageStream(String prompt, {Iterable<Attachment> attachments = const []}) async* {
-    // If you know how to construct ChatMessage, you can push the user's message into _history here.
-    // Example (pseudo):
-    // _history.add(ChatMessage(...user message...));
-    // notifyListeners();
-
-    _history.add(ChatMessage(text: prompt, attachments: [], origin: MessageOrigin.user));
+  Stream<String> sendMessageStream(
+    String prompt, {
+    Iterable<Attachment> attachments = const [],
+  }) async* {
+    // 1. Add User Message to UI
+    _history.add(ChatMessage(text: prompt, origin: MessageOrigin.user, attachments: []));
     notifyListeners();
 
-    final resp = await request(prompt);
+    
 
-    // If you know ChatMessage constructors, add assistant message to history here:
-    // _history.add(ChatMessage(...assistant message...));
-    // notifyListeners();
-    _history.add(ChatMessage(text: resp, attachments: [], origin: MessageOrigin.llm));
+    // 2. Stream the response from Python
+    String completeResponse = "";
+    await for (final token in generateStream(prompt, attachments: attachments)) {
+      completeResponse += token;
+      yield token;
+    }
+
+    // 3. Add AI Response to UI History
+    _history.add(ChatMessage(text: completeResponse, origin: MessageOrigin.llm, attachments: []));
     notifyListeners();
-
-    yield resp;
   }
-  
+
   @override
   set history(Iterable<ChatMessage> history) {
     _history.clear();
