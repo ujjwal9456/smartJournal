@@ -5,8 +5,8 @@ import 'package:journal/services/ai_providers.dart';
 // Provider for the chat instance that persists across navigation
 final chatProviderProvider = Provider<OllamaChatProvider>((ref) {
   return OllamaChatProvider(
-    model: 'qwen2:7b',
-    apiUrl: 'http://localhost:11434/api/chat'
+    model: 'llama3.2:1b',
+    apiUrl: 'http://localhost:8000/chat'
   );
 });
 
